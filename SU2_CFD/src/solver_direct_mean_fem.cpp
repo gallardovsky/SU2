@@ -8473,6 +8473,9 @@ CFEM_DG_NSSolver::CFEM_DG_NSSolver(CGeometry *geometry, CConfig *config, unsigne
       /*--- Set the wall model used flag to true. This indicates at the solver level whether a wall model is used
        * or not ---*/
       wallModelUsed = true;
+
+      /*--- Determine what kind of wall this is (isothermal or heatflux) ---*/
+
       /* Initialize wall model for this marker/boundary */
       wallModel[iMarker]->Initialize(thisBoundary, config, geometry);
     }
@@ -11788,23 +11791,23 @@ void CFEM_DG_NSSolver::ViscousNormalFluxFace_WM(CConfig              *config,
 //    memcpy(sol, solDOF, nBytes);
 //  }
 
-//  // Debugging output
-//  if(cur_face == 0){
-//    std::cout << "Current boundary = " << boundary->markerTag << std::endl;
-//    std::cout << "Current face = " << cur_face << std::endl;
-//    std::cout << "Number of DOFs of face = " << nDOFsFace << std::endl;
-//    std::cout << "Corresponding volume element ID = " << face->volElemID << std::endl;
-//    std::cout << "Corresponding element at index equal to ID = " << volElem[face->volElemID].elemIDGlobal << std::endl;
-//    std::cout << "adjVolElem elemIDGlobal = " << adjVolElem->elemIDGlobal << std::endl;
-//    std::cout << "adjVolElem offsetDOFsSolGlobal = " << adjVolElem->offsetDOFsSolGlobal << std::endl;
-//    std::cout << "adjVolElem offsetDOFsSolLocal = " << adjVolElem->offsetDOFsSolLocal << std::endl;
-//    std::cout << "adjVolElem offsetDOFsSolThisTimeLevel = " << adjVolElem->offsetDOFsSolThisTimeLevel << std::endl;
-//  }
+  // Debugging output
+  if(cur_face == 0){
+    std::cout << "Current boundary = " << boundary->markerTag << std::endl;
+    std::cout << "Current face = " << cur_face << std::endl;
+    std::cout << "Number of DOFs of face = " << nDOFsFace << std::endl;
+    std::cout << "Corresponding volume element ID = " << face->volElemID << std::endl;
+    std::cout << "Corresponding element at index equal to ID = " << volElem[face->volElemID].elemIDGlobal << std::endl;
+    std::cout << "adjVolElem elemIDGlobal = " << adjVolElem->elemIDGlobal << std::endl;
+    std::cout << "adjVolElem offsetDOFsSolGlobal = " << adjVolElem->offsetDOFsSolGlobal << std::endl;
+    std::cout << "adjVolElem offsetDOFsSolLocal = " << adjVolElem->offsetDOFsSolLocal << std::endl;
+    std::cout << "adjVolElem offsetDOFsSolThisTimeLevel = " << adjVolElem->offsetDOFsSolThisTimeLevel << std::endl;
+  }
 
   const unsigned long nBytes = nVar*sizeof(su2double);
   // Loop over the DOFs of the boundary face
-  for(unsigned short i=0; i<nDOFsFace; i++){
-
+  //for(unsigned short i=0; i<nDOFsFace; i++){
+  for(unsigned short i=0; i<1; i++){
     // For this boundary face DOF, get the exchange DOF (located at the exchange distance "above" this point)
     unsigned short exchangeID = face->exchangePointIDs[i];
 

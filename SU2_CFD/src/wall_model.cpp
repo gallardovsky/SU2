@@ -32,7 +32,8 @@
  */
 
 #include "../include/wall_model.hpp"
-#include "../include/solver_structure.hpp"
+#include <lapacke.h>
+//#include "../include/solver_structure.hpp"
 
 CWallModel::CWallModel(void){
   thickness = 0.0;
@@ -48,17 +49,13 @@ void CWallModel::SetPoints(CSurfaceElementFEM * thisElem, vector<su2double> exch
 
 void CWallModel::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceElementFEM * curFace, unsigned short nDim){}
 
-void CWallModel::CalcShearStress(void){}
-
-void CWallModel::CalcEnergyFlux(void){}
-
-void CWallModel::UpdateSolution(void){}
-
-void CWallModel::CalcViscosity(void){}
-
 CWallModel1DEQ::CWallModel1DEQ(void) : CWallModel(){
   expansionRatio = 0.0;
   numPoints = 0.0;
+  isIsoThermalWall = false;
+  isHeatFluxWall = false;
+  specWallTemp = 0.0;
+  specWallHeatFlux = 0.0;
 }
 
 CWallModel1DEQ::~CWallModel1DEQ(void){}
@@ -69,6 +66,15 @@ void CWallModel1DEQ::Initialize(CBoundaryFEM * boundary, CConfig * config, CGeom
 
   /*--- Get the marker name for this boundary ---*/
   std::string markerName = boundary->markerTag;
+
+  /*--- To Do: Determine what kind of wall this is (isothermal or heat flux)
+   * If this is an isothermal wall, set isIsoThermalWall to true and
+   * get the specified wall temperature. Otherwise, set isHeatFluxWall to true
+   * and get the specified wall heatflux. ---*/
+
+  // FOR NOW, ASSUME ISOTHERMAL WALL
+  isIsoThermalWall = true;
+  specWallTemp = config->GetIsothermal_Temperature(markerName);
 
   /*--- Get double data from the configuration class object. This should include
    * the wall model thickness and the expansion ratio of the points ---*/
@@ -181,8 +187,13 @@ void CWallModel1DEQ::SetPoints(CSurfaceElementFEM * thisElem, su2double exchange
   /*--- for now, we are just using the y-coordinate ---*/
   /*--- Use a geometric expansion to get wall model point coords between the wall and the exchange location ---*/
   /*--- Find the first cell thickness ---*/
-  su2double firstCellThickness = exchangeHeight * (1 - this->expansionRatio) / (1 - std::pow(this->expansionRatio,this->numPoints-1));
-
+  su2double firstCellThickness = 0.0;
+  if(this->expansionRatio == 1.0){
+    firstCellThickness = exchangeHeight/(this->numPoints-1);
+  }
+  else{
+    firstCellThickness = exchangeHeight * (1 - this->expansionRatio) / (1 - std::pow(this->expansionRatio,this->numPoints-1));
+  }
 //  // Output for debugging
 //  if(thisElem->boundElemIDGlobal == 0)
 //  {
@@ -193,15 +204,22 @@ void CWallModel1DEQ::SetPoints(CSurfaceElementFEM * thisElem, su2double exchange
 
   // Set first wall model point to be at the wall (y=0)
   thisElem->wallModelPoints[0] = 0.0;
-  for(unsigned short iPoint = 1; iPoint < numPoints; ++iPoint){
-    thisElem->wallModelPoints[iPoint] = thisElem->wallModelPoints[iPoint-1] + firstCellThickness * std::pow(this->expansionRatio,iPoint-1);
+  if(this->expansionRatio == 1.0){
+    for(unsigned short iPoint = 1; iPoint < numPoints; ++iPoint){
+      thisElem->wallModelPoints[iPoint] = thisElem->wallModelPoints[iPoint-1] + exchangeHeight/(this->numPoints-1);
+    }
   }
-//  // Output for debugging
-//  if(thisElem->boundElemIDGlobal == 0){
-//    for(unsigned short i = 0; i < numPoints; ++i){
-//      std::cout << "y[" << i << "] = " << thisElem->wallModelPoints[i] << std::endl;
-//    }
-//  }
+  else{
+    for(unsigned short iPoint = 1; iPoint < numPoints; ++iPoint){
+      thisElem->wallModelPoints[iPoint] = thisElem->wallModelPoints[iPoint-1] + firstCellThickness * std::pow(this->expansionRatio,iPoint-1);
+    }
+  }
+  // Output for debugging
+  if(thisElem->boundElemIDGlobal == 0){
+    for(unsigned short i = 0; i < numPoints; ++i){
+      std::cout << "y[" << i << "] = " << thisElem->wallModelPoints[i] << std::endl;
+    }
+  }
 }
 
 void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceElementFEM * curFace, unsigned short nDim){
@@ -214,15 +232,17 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
   std::vector<su2double> y(numPoints,0.0);
   std::vector<su2double> u(numPoints,0.0);
   std::vector<su2double> T(numPoints,0.0);
+  std::vector<su2double> rho(numPoints,0.0);
   std::vector<su2double> mu(numPoints,0.0);
   std::vector<su2double> muTurb(numPoints,0.0);
-  std::vector<su2double> energyFlux(numPoints,0.0);
-  su2double tauWall_init = 0.1;
-  su2double rho_bc = 0.0;
-  su2double u_bc = 0.0;
-  su2double v_bc = 0.0;
-  su2double w_bc = 0.0;
-  su2double e_bc = 0.0;
+
+  su2double tauWall = 0.0;
+  su2double rho_ex = 0.0;
+  su2double rho_wall = 0.0;
+  su2double u_ex = 0.0;
+  su2double v_ex = 0.0;
+  su2double w_ex = 0.0;
+  su2double e_ex = 0.0;
 
   // Set some constants, assuming air at standard conditions
   su2double C_1 = 1.458e-6;
@@ -238,39 +258,60 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
   bool initCondExists = false;
 
   // Calculate additional exchange location values
-  su2double c_v = (gamma*R)/(gamma-1);
-  su2double c_p = R/(gamma-1);
+  su2double c_p = (gamma*R)/(gamma-1);
+  su2double c_v = R/(gamma-1);
   if(nDim == 2)
   {
-    rho_bc = exVals[0];
-    u_bc = exVals[1];
-    v_bc = exVals[2];
-    e_bc = exVals[3];
+    rho_ex = exVals[0];
+    u_ex = exVals[1];
+    v_ex = exVals[2];
+    e_ex = exVals[3];
   }
   else if(nDim == 3)
   {
-    rho_bc = exVals[0];
-    u_bc = exVals[1];
-    v_bc = exVals[2];
-    w_bc = exVals[3];
-    e_bc = exVals[4];
+    rho_ex = exVals[0];
+    u_ex = exVals[1];
+    v_ex = exVals[2];
+    w_ex = exVals[3];
+    e_ex = exVals[4];
   }
-  // Assume calorically perfect gas.
-  su2double T_bc = e_bc/c_v;
-  su2double P_bc = rho_bc * R *T_bc;
-  su2double h_bc = e_bc + P_bc/rho_bc;
 
+  // Get velocity magnitude and direction
+  su2double veloc_mag_ex = std::sqrt(u_ex*u_ex + w_ex*w_ex);
+  su2double veloc_dir_ex = std::acos(u_ex / veloc_mag_ex);
+
+  // Assume calorically perfect gas.
+  su2double T_ex = e_ex/c_v;
+  su2double P_ex = rho_ex * R *T_ex;
+
+  // Output for debugging
+  if(curFace->volElemID == 0){
+    std::cout << "i = ";
+    for(unsigned short i = 0; i<numPoints; i++){
+      std::cout << i << ", ";
+    }
+    std::cout << std::endl;
+  }
+
+  unsigned short j = 0;
   while( converged == false ){
+
     /*--- Set initial condition if it doesn't already exist ---*/
     if( initCondExists == false ){
-      // Set the initial friction length based on the initial guess of wall shear stress
-      su2double u_tau = std::sqrt(tauWall_init/rho_bc);
-      su2double mu_init = C_1 * std::pow(T_bc,1.5) / (T_bc + S);
-      su2double nu_init = mu_init / rho_bc;
-      su2double l_tau = nu_init/u_tau;
+      if(curFace->volElemID == 0){
+        std::cout << "Setting Initial Condition for WM" << std::endl;
+        std::cout << "veloc_mag = " << veloc_mag_ex << std::endl;
+        std::cout << "T_ex = " << T_ex << std::endl;
+      }
+      // Set the initial friction length
+      su2double mu_init = C_1 * std::pow(T_ex,1.5) / (T_ex + S);
+      tauWall = 0.1 * mu_init * veloc_mag_ex / curFace->wallModelPoints[1];
+      su2double u_tau = std::sqrt(tauWall/rho_ex);
+      su2double nu_init = mu_init / rho_ex;
+      su2double l_tau = nu_init / u_tau;
       for(unsigned short i = 0; i<numPoints; i++){
         // Initial condition is uniform temperature
-        T[i] = T_bc;
+        T[i] = T_ex;
 
         /*--- Set the viscosity (constant to begin) ---*/
         mu[i] = mu_init;
@@ -280,10 +321,11 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
 
         /*--- Set the turbulent viscosity ---*/
         su2double D = std::pow(1-std::exp((-y[i]/l_tau)/A),2.0);
-        muTurb[i] = kappa * rho_bc * y[i] * u_tau * D;
+        muTurb[i] = kappa * rho_ex * y[i] * u_tau * D;
+        //muTurb[i] = 0.0;
       }
+      initCondExists = true;
     }
-    initCondExists = true;
 
     // Set up momentum equation matrix and rhs(interior points)
     std::vector<su2double> lower(numPoints-1,0.0);
@@ -291,69 +333,161 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
     std::vector<su2double> diagonal(numPoints,0.0);
     std::vector<su2double> rhs(numPoints,0.0);
 
+    /*--- Solve the differential equation
+     * d/dy[ (mu + mu_turb) * du/dy) = 0
+     * Re-write as
+     * d^2u/dy^2 + g(y)*du/dy = 0
+     * where g(y) = f'(y) / f(y)
+     * f(y) = (mu + mu_turb) ---*/
+
     for(unsigned short i=1; i<numPoints-1; i++)
     {
-      su2double g = mu[i] + muTurb[i];
-      su2double g1 = mu[i+1] + muTurb[i+1];
-      su2double g_dy = g / (y[i] - y[i-1]);
-      su2double g1_dy = g1 / (y[i+1] - y[i]);
+      // For equally spaced points, these are the same
+      su2double dy_minus = (y[i] - y[i-1]);
+      su2double dy_plus = (y[i+1] - y[i]);
 
-      lower[i] = g_dy;
-      upper[i] = g1_dy;
-      diagonal[i] = -g_dy - g1_dy;
+      su2double f_minus = (mu[i-1] + muTurb[i-1]);
+      su2double f = (mu[i] + muTurb[i]);
+      su2double f_plus = (mu[i+1] + muTurb[i+1]);
+
+      su2double f_prime = (f_plus - f_minus) / (dy_minus + dy_plus);
+
+      su2double g = f_prime/f;
+
+      //lower[i] = (1/(dy_minus*dy_plus) - g/(dy_minus+dy_plus));
+      //upper[i] = (1/(dy_plus*dy_plus) + g/(dy_minus+dy_plus));
+      //diagonal[i] = -2.0/(dy_minus*dy_plus);
+      lower[i] = (1 - 0.5*dy_minus*g);
+      upper[i] = (1 + 0.5*dy_minus*g);
+      diagonal[i] = -2.0;
       rhs[i] = 0.0;
     }
 
-    //************TO DO*************************//
-    // Set up momentum equation boundary conditions
+    /*--- Set boundary conditions in matrix and rhs ---*/
+    diagonal[0] = 1.0;
+    rhs[0] = 0.0;
+    diagonal[numPoints-1] = 1.0;
+    rhs[numPoints-1] = veloc_mag_ex;
 
     // Solve the matrix problem to get the velocity field
     //********LAPACK CALL*******
-    unsigned short info = 0;
-    //dgtsv(1,1,lower.data(),diagonal.data(),upper.data(),rhs.data(),1,info);
+    int info = 0;
+    info = LAPACKE_dgtsv(LAPACK_COL_MAJOR,numPoints,1,lower.data(),diagonal.data(),upper.data(),rhs.data(),numPoints);
 
     u = rhs;
+
+    if(curFace->volElemID == 0)
+    {
+      std::cout << "info = " << info << std::endl;
+      std::cout << "u = ";
+      for(unsigned short i=0; i<numPoints; i++){
+        std::cout << u[i] << ",  ";
+      }
+      std::cout << std::endl;
+      std::cout << "mu = ";
+      for(unsigned short i=0; i<numPoints; i++){
+        std::cout << mu[i] << ",  ";
+      }
+      std::cout << std::endl;
+      std::cout << "muTurb = ";
+      for(unsigned short i=0; i<numPoints; i++){
+        std::cout << muTurb[i] << ",  ";
+      }
+      std::cout << std::endl;
+    }
 
     // Set up energy equation matrix and rhs
     for(unsigned short i=1; i<numPoints-1; i++)
     {
-      //**************TO DO***********
-      // Still need to work on energy matrix coefficients
-      su2double g = mu[i]/Pr_lam + muTurb[i]/Pr_turb;
-      su2double g1 = mu[i+1]/Pr_lam + muTurb[i+1]/Pr_turb;
-      su2double g_dy = g / (y[i] - y[i-1]);
-      su2double g1_dy = g1 / (y[i+1] - y[i]);
+      su2double dy_minus = (y[i] - y[i-1]);
+      su2double dy_plus = (y[i+1] - y[i]);
 
-      lower[i] = g_dy;
-      upper[i] = g1_dy;
-      diagonal[i] = -g_dy - g1_dy;
+      su2double f_minus = c_p * (mu[i-1]/Pr_lam + muTurb[i-1]/Pr_turb);
+      su2double f = c_p * (mu[i]/Pr_lam + muTurb[i]/Pr_turb);
+      su2double f_plus = c_p * (mu[i+1]/Pr_lam + muTurb[i+1]/Pr_turb);
 
-      //*********TO DO**********//
-      // Fill right hand side
+      su2double f_prime = (f_plus - f_minus) / (dy_minus + dy_plus);
+
+      su2double g = f_prime/f;
+
+      //lower[i] = (1/dy_minus - 0.5*g);
+      //upper[i] = (1/dy_plus + 0.5*g);
+      //diagonal[i] = -2.0/dy_minus;
+
+      lower[i] = (1 - 0.5*dy_minus*g);
+      upper[i] = (1 + 0.5*dy_minus*g);
+      diagonal[i] = -2.0;
+
+      su2double rhs_minus = (mu[i-1] + muTurb[i-1]) * u[i-1] * (u[i] - u[i-1]) / dy_minus;
+      su2double rhs_plus = (mu[i+1] + muTurb[i+1]) * u[i+1] * (u[i+1] - u[i]) / dy_plus;
+      rhs[i] = -1.0*(rhs_plus - rhs_minus)/(dy_minus + dy_plus);
     }
 
-    //**********TO DO***********//
     // Set up energy boundary conditions
+    if(isIsoThermalWall == true)
+    {
+      diagonal[0] = 1.0;
+      rhs[0] = specWallTemp;
+      diagonal[numPoints-1] = 1.0;
+      rhs[numPoints-1] = T_ex;
+    }
+    else if(isHeatFluxWall == true)
+    {
+      // TO DO: Set BCs for heat flux condition
+    }
 
     // Solve the matrix problem to get the temperature field
     // *******LAPACK CALL********
     info = 0;
-    //dgtsv(1,1,lower.data(),diagonal.data(),upper.data(),rhs.data(),1,info);
+    info = LAPACKE_dgtsv(LAPACK_COL_MAJOR,numPoints,1,lower.data(),diagonal.data(),upper.data(),rhs.data(),numPoints);
 
-    this->CalcShearStress();
-    this->CalcEnergyFlux();
+    T = rhs;
 
-    this->UpdateSolution();
+    if(curFace->volElemID == 0)
+    {
+      std::cout << "info = " << info << std::endl;
+      std::cout << "T = ";
+      for(unsigned short i=0; i<numPoints; i++){
+        std::cout << T[i] << ",  ";
+      }
+      std::cout << std::endl;
+    }
 
+    su2double tauWall = mu[1] * u[1] / y[1];
+    su2double heatFlux = 0.0;
+    if(isIsoThermalWall == true){
+      heatFlux = c_p*(mu[1]/Pr_lam) * (T[1] - specWallTemp) / y[1];
+    }
 
+    if(curFace->volElemID == 0)
+    {
+      std::cout << "tauWall = " << tauWall << std::endl;
+      std::cout << "heatFlux = " << heatFlux << std::endl;
+      std::cout << "---------" << std::endl;
+    }
+
+    // Given new wall shear and temperature profile, update solution
+    rho_wall = P_ex / (R * T[0]);
+    su2double u_tau = std::sqrt(tauWall/rho_wall);
+    su2double mu_wall = C_1 * std::pow(T[0],1.5) / (T[0] + S);
+    su2double nu_wall = mu_wall / rho_wall;
+    su2double l_tau = nu_wall / u_tau;
+    for(unsigned short i=0; i<numPoints; i++){
+      // Set molecular viscosity based on new temp profile
+      mu[i] = C_1 * std::pow(T[i],1.5) / (T[i] + S);
+
+      // Set the density based on the new temp profile
+      rho[i] = P_ex / (R*T[i]);
+      /*--- Set the turbulent viscosity ---*/
+      su2double D = std::pow(1-std::exp((-y[i]/l_tau)/A),2.0);
+      muTurb[i] = kappa * rho[i] * y[i] * u_tau * D;
+      //muTurb[i] = 0.0;
+    }
+
+    if(j == 5){
+      converged = true;
+    }
+    j++;
   }
-
 }
 
-void CWallModel1DEQ::CalcShearStress(void){}
-
-void CWallModel1DEQ::CalcEnergyFlux(void){}
-
-void CWallModel1DEQ::UpdateSolution(void){}
-
-void CWallModel1DEQ::CalcViscosity(void){}

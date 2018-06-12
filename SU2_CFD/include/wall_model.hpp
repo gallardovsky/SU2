@@ -37,14 +37,14 @@
 #include "../../Common/include/config_structure.hpp"
 #include "../../Common/include/fem_geometry_structure.hpp"
 
-
+//#include <lapacke.h>
 #include <iostream>
 #include <cmath>
 
 using namespace std;
 
 // Forward declaration of class CSolver avoids circular dependency
-class CSolver;
+//class CSolver;
 
 /*!
  * \class CSGSModel
@@ -74,14 +74,6 @@ public:
 
   virtual void SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceElementFEM * curFace, unsigned short nDim);
 
-  virtual void CalcShearStress(void);
-
-  virtual void CalcEnergyFlux(void);
-
-  virtual void UpdateSolution(void);
-
-  virtual void CalcViscosity(void);
-
 protected:
 
   su2double thickness; /*!< \brief The thickness of the wall model. This is also basically the exchange location */
@@ -110,20 +102,16 @@ public:
 
   void SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceElementFEM * curFace, unsigned short nDim);
 
-  void CalcShearStress(void);
-
-  void CalcEnergyFlux(void);
-
-  void UpdateSolution(void);
-
-  void CalcViscosity(void);
-
 protected:
 
   su2double expansionRatio;
   unsigned short int numPoints;
   bool initCondExists;
   su2double tauWallInit;
+  bool isIsoThermalWall;
+  su2double specWallTemp;
+  bool isHeatFluxWall;
+  su2double specWallHeatFlux;
 
 };
 
