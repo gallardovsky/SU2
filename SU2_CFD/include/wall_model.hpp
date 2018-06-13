@@ -41,7 +41,7 @@
 #include <iostream>
 #include <cmath>
 
-using namespace std;
+//using namespace std;
 
 // Forward declaration of class CSolver avoids circular dependency
 //class CSolver;
@@ -104,14 +104,31 @@ public:
 
 protected:
 
+  //void SetInitialConditions(void)
+
   su2double expansionRatio;
   unsigned short int numPoints;
-  bool initCondExists;
-  su2double tauWallInit;
+
+  std::vector<su2double> y;
+  std::vector<su2double> u;
+  std::vector<su2double> T;
+  std::vector<su2double> rho;
+  std::vector<su2double> mu;
+  std::vector<su2double> muTurb;
+  std::vector<su2double> muTurb_new;
+
+  std::vector<su2double> lower;
+  std::vector<su2double> diagonal;
+  std::vector<su2double> upper;
+  std::vector<su2double> rhs;
+
   bool isIsoThermalWall;
   su2double specWallTemp;
+
   bool isHeatFluxWall;
   su2double specWallHeatFlux;
+
+
 
 };
 

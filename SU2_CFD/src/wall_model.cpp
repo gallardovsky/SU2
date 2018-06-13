@@ -82,8 +82,6 @@ void CWallModel1DEQ::Initialize(CBoundaryFEM * boundary, CConfig * config, CGeom
   thickness = tempDoubleData[0];
   expansionRatio = tempDoubleData[1];
 
-  initCondExists = false;
-
   // Output values for debugging purposes
   std::cout << "Thickness = " << thickness << std::endl;
   std::cout << "Expansion Ratio = " << expansionRatio << std::endl;
@@ -102,6 +100,18 @@ void CWallModel1DEQ::Initialize(CBoundaryFEM * boundary, CConfig * config, CGeom
   boundary->nWallModelPoints = numPoints;
   boundary->wallModelExpansionRatio = expansionRatio;
   boundary->wallModelThickness = thickness;
+
+  y.resize(numPoints,0.0);
+  u.resize(numPoints,0.0);
+  T.resize(numPoints,0.0);
+  rho.resize(numPoints,0.0);
+  mu.resize(numPoints,0.0);
+  muTurb.resize(numPoints,0.0);
+
+  lower.resize(numPoints-1,0.0);
+  diagonal.resize(numPoints,0.0);
+  upper.resize(numPoints-1,0.0);
+  rhs.resize(numPoints,0.0);
 
   this->SetUpExchange(boundary, config, geometry);
 
@@ -214,37 +224,40 @@ void CWallModel1DEQ::SetPoints(CSurfaceElementFEM * thisElem, su2double exchange
       thisElem->wallModelPoints[iPoint] = thisElem->wallModelPoints[iPoint-1] + firstCellThickness * std::pow(this->expansionRatio,iPoint-1);
     }
   }
-  // Output for debugging
-  if(thisElem->boundElemIDGlobal == 0){
-    for(unsigned short i = 0; i < numPoints; ++i){
-      std::cout << "y[" << i << "] = " << thisElem->wallModelPoints[i] << std::endl;
-    }
-  }
+//  // Output for debugging
+//  if(thisElem->boundElemIDGlobal == 0){
+//    for(unsigned short i = 0; i < numPoints; ++i){
+//      std::cout << "y[" << i << "] = " << thisElem->wallModelPoints[i] << std::endl;
+//    }
+//  }
 }
 
 void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceElementFEM * curFace, unsigned short nDim){
   /*--- This function solves the coupled systems ---*/
 
-  /*--- First, set up vectors and initialize---*/
-  //*********************TO DO***************//
-  // Move these to be class members
-  // Reset them for each new point
-  std::vector<su2double> y(numPoints,0.0);
-  std::vector<su2double> u(numPoints,0.0);
-  std::vector<su2double> T(numPoints,0.0);
-  std::vector<su2double> rho(numPoints,0.0);
-  std::vector<su2double> mu(numPoints,0.0);
-  std::vector<su2double> muTurb(numPoints,0.0);
+  /*--- Make sure all vectors are zero'd out ---*/
+  y.assign(numPoints,0.0);
+  u.assign(numPoints,0.0);
+  T.assign(numPoints,0.0);
+  rho.assign(numPoints,0.0);
+  mu.assign(numPoints,0.0);
+  muTurb.assign(numPoints,0.0);
+  muTurb_new.assign(numPoints,0.0);
+
+  lower.assign(numPoints-1,0.0);
+  upper.assign(numPoints-1,0.0);
+  diagonal.assign(numPoints,0.0);
+  rhs.assign(numPoints,0.0);
 
   su2double tauWall = 0.0;
   su2double rho_ex = 0.0;
-  su2double rho_wall = 0.0;
   su2double u_ex = 0.0;
   su2double v_ex = 0.0;
   su2double w_ex = 0.0;
   su2double e_ex = 0.0;
 
   // Set some constants, assuming air at standard conditions
+  // TO DO: Get these values from solver or config classes
   su2double C_1 = 1.458e-6;
   su2double S = 110.4;
   su2double R = 287.058;
@@ -253,13 +266,14 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
   su2double gamma = 1.4;
   su2double Pr_lam = 0.7;
   su2double Pr_turb = 0.9;
+  su2double c_p = (gamma*R)/(gamma-1);
+  su2double c_v = R/(gamma-1);
 
   bool converged = false;
   bool initCondExists = false;
 
-  // Calculate additional exchange location values
-  su2double c_p = (gamma*R)/(gamma-1);
-  su2double c_v = R/(gamma-1);
+  su2double exchangeHeight = curFace->wallModelPoints[numPoints-1];
+  // Store exchange values
   if(nDim == 2)
   {
     rho_ex = exVals[0];
@@ -282,56 +296,66 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
 
   // Assume calorically perfect gas.
   su2double T_ex = e_ex/c_v;
-  su2double P_ex = rho_ex * R *T_ex;
+  su2double P_ex = rho_ex * R * T_ex;
 
-  // Output for debugging
-  if(curFace->volElemID == 0){
-    std::cout << "i = ";
-    for(unsigned short i = 0; i<numPoints; i++){
-      std::cout << i << ", ";
-    }
-    std::cout << std::endl;
-  }
+//  // Output for debugging
+//  if(curFace->volElemID == 0){
+//    std::cout << "i = ";
+//    for(unsigned short i = 0; i<numPoints; i++){
+//      std::cout << i << ", ";
+//    }
+//    std::cout << std::endl;
+//  }
 
+  // Set up vector for kinematic viscosity
+  std::vector<su2double> nu(numPoints,0.0);
   unsigned short j = 0;
   while( converged == false ){
 
+    lower.assign(numPoints-1,0.0);
+    upper.assign(numPoints-1,0.0);
+    diagonal.assign(numPoints,0.0);
+    rhs.assign(numPoints,0.0);
+
     /*--- Set initial condition if it doesn't already exist ---*/
     if( initCondExists == false ){
-      if(curFace->volElemID == 0){
-        std::cout << "Setting Initial Condition for WM" << std::endl;
-        std::cout << "veloc_mag = " << veloc_mag_ex << std::endl;
-        std::cout << "T_ex = " << T_ex << std::endl;
-      }
-      // Set the initial friction length
-      su2double mu_init = C_1 * std::pow(T_ex,1.5) / (T_ex + S);
-      tauWall = 0.1 * mu_init * veloc_mag_ex / curFace->wallModelPoints[1];
-      su2double u_tau = std::sqrt(tauWall/rho_ex);
-      su2double nu_init = mu_init / rho_ex;
-      su2double l_tau = nu_init / u_tau;
+//      if(curFace->volElemID == 0){
+//        std::cout << "Setting Initial Condition for WM" << std::endl;
+//        std::cout << "veloc_mag = " << veloc_mag_ex << std::endl;
+//        std::cout << "T_ex = " << T_ex << std::endl;
+//      }
+
       for(unsigned short i = 0; i<numPoints; i++){
-        // Initial condition is uniform temperature
-        T[i] = T_ex;
-
-        /*--- Set the viscosity (constant to begin) ---*/
-        mu[i] = mu_init;
-
-        // Get the y-coordinate of the 1-d points from the current face
+        // Set y coordinates
         y[i] = curFace->wallModelPoints[i];
 
+        // Set linear velocity profile
+        u[i] = y[i] * veloc_mag_ex/exchangeHeight;
+
+        // Set constant temperature profile
+        T[i] = T_ex;
+
+        // Set density profile
+        rho[i] = P_ex / (R*T[i]);
+
+        // Set the viscosity profile, based on Sutherland's law
+        mu[i] = C_1 * std::pow(T[i],1.5) / (T[i] + S);
+        nu[i] = mu[i]/rho[i];
+      }
+      // Set the initial friction length based on wall shear with linear
+      // velocity profile
+      tauWall = mu[0] * (u[1]-u[0])/y[1];
+      su2double u_tau = std::sqrt(tauWall/rho[0]);
+      su2double l_tau = nu[0] / u_tau;
+      for(unsigned short i = 0; i<numPoints; i++){
         /*--- Set the turbulent viscosity ---*/
-        su2double D = std::pow(1-std::exp((-y[i]/l_tau)/A),2.0);
+        su2double y_plus = y[i]/l_tau;
+        su2double D = std::pow(1-std::exp((-y_plus)/A),2.0);
         muTurb[i] = kappa * rho_ex * y[i] * u_tau * D;
         //muTurb[i] = 0.0;
       }
       initCondExists = true;
     }
-
-    // Set up momentum equation matrix and rhs(interior points)
-    std::vector<su2double> lower(numPoints-1,0.0);
-    std::vector<su2double> upper(numPoints-1,0.0);
-    std::vector<su2double> diagonal(numPoints,0.0);
-    std::vector<su2double> rhs(numPoints,0.0);
 
     /*--- Solve the differential equation
      * d/dy[ (mu + mu_turb) * du/dy) = 0
@@ -346,22 +370,38 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
       su2double dy_minus = (y[i] - y[i-1]);
       su2double dy_plus = (y[i+1] - y[i]);
 
-      su2double f_minus = (mu[i-1] + muTurb[i-1]);
-      su2double f = (mu[i] + muTurb[i]);
-      su2double f_plus = (mu[i+1] + muTurb[i+1]);
+      su2double f_minus = mu[i-1] + muTurb[i-1];
+      su2double f = mu[i] + muTurb[i];
+      su2double f_plus = mu[i+1] + muTurb[i+1];
 
       su2double f_prime = (f_plus - f_minus) / (dy_minus + dy_plus);
 
       su2double g = f_prime/f;
 
-      //lower[i] = (1/(dy_minus*dy_plus) - g/(dy_minus+dy_plus));
-      //upper[i] = (1/(dy_plus*dy_plus) + g/(dy_minus+dy_plus));
-      //diagonal[i] = -2.0/(dy_minus*dy_plus);
-      lower[i] = (1 - 0.5*dy_minus*g);
-      upper[i] = (1 + 0.5*dy_minus*g);
-      diagonal[i] = -2.0;
+      lower[i-1] = (1/(dy_minus*dy_plus) - g/(dy_minus+dy_plus));
+      upper[i] = (1/(dy_plus*dy_plus) + g/(dy_minus+dy_plus));
+      diagonal[i] = -2.0/(dy_minus*dy_plus);
       rhs[i] = 0.0;
     }
+
+//    // Output for debugging
+//    if(curFace->volElemID == 0){
+//      std::cout << "lower = ";
+//      for(unsigned short i = 0; i<numPoints-1; i++){
+//        std::cout << lower[i] << ", ";
+//      }
+//      std::cout << std::endl;
+//      std::cout << "diagonal = ";
+//      for(unsigned short i = 0; i<numPoints; i++){
+//        std::cout << diagonal[i] << ", ";
+//      }
+//      std::cout << std::endl;
+//      std::cout << "upper = ";
+//      for(unsigned short i = 0; i<numPoints-1; i++){
+//        std::cout << upper[i] << ", ";
+//      }
+//      std::cout << std::endl;
+//    }
 
     /*--- Set boundary conditions in matrix and rhs ---*/
     diagonal[0] = 1.0;
@@ -376,25 +416,30 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
 
     u = rhs;
 
-    if(curFace->volElemID == 0)
-    {
-      std::cout << "info = " << info << std::endl;
-      std::cout << "u = ";
-      for(unsigned short i=0; i<numPoints; i++){
-        std::cout << u[i] << ",  ";
-      }
-      std::cout << std::endl;
-      std::cout << "mu = ";
-      for(unsigned short i=0; i<numPoints; i++){
-        std::cout << mu[i] << ",  ";
-      }
-      std::cout << std::endl;
-      std::cout << "muTurb = ";
-      for(unsigned short i=0; i<numPoints; i++){
-        std::cout << muTurb[i] << ",  ";
-      }
-      std::cout << std::endl;
-    }
+//    if(curFace->volElemID == 0)
+//    {
+//      std::cout << "info = " << info << std::endl;
+//      std::cout << "u = ";
+//      for(unsigned short i=0; i<numPoints; i++){
+//        std::cout << u[i] << ",  ";
+//      }
+//      std::cout << std::endl;
+//      std::cout << "mu = ";
+//      for(unsigned short i=0; i<numPoints; i++){
+//        std::cout << mu[i] << ",  ";
+//      }
+//      std::cout << std::endl;
+//      std::cout << "muTurb = ";
+//      for(unsigned short i=0; i<numPoints; i++){
+//        std::cout << muTurb[i] << ",  ";
+//      }
+//      std::cout << std::endl;
+//    }
+
+    lower.assign(numPoints-1,0.0);
+    upper.assign(numPoints-1,0.0);
+    diagonal.assign(numPoints,0.0);
+    rhs.assign(numPoints,0.0);
 
     // Set up energy equation matrix and rhs
     for(unsigned short i=1; i<numPoints-1; i++)
@@ -410,17 +455,17 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
 
       su2double g = f_prime/f;
 
-      //lower[i] = (1/dy_minus - 0.5*g);
-      //upper[i] = (1/dy_plus + 0.5*g);
-      //diagonal[i] = -2.0/dy_minus;
+      lower[i-1] = (1/(dy_minus*dy_plus) - g/(dy_minus+dy_plus));
+      upper[i] = (1/(dy_plus*dy_plus) + g/(dy_minus+dy_plus));
+      diagonal[i] = -2.0/(dy_minus*dy_plus);
 
-      lower[i] = (1 - 0.5*dy_minus*g);
-      upper[i] = (1 + 0.5*dy_minus*g);
-      diagonal[i] = -2.0;
+      su2double u_prime = (u[i+1] - u[i-1])/(dy_minus+dy_plus);
+      su2double u_prime_prime = (u[i-1] - 2*u[i] + u[i+1])/(dy_minus*dy_plus);
 
-      su2double rhs_minus = (mu[i-1] + muTurb[i-1]) * u[i-1] * (u[i] - u[i-1]) / dy_minus;
-      su2double rhs_plus = (mu[i+1] + muTurb[i+1]) * u[i+1] * (u[i+1] - u[i]) / dy_plus;
-      rhs[i] = -1.0*(rhs_plus - rhs_minus)/(dy_minus + dy_plus);
+      su2double rhs_1 = -f_prime * u[i] * u_prime;
+      su2double rhs_2 = -f * u_prime * u_prime;
+      su2double rhs_3 = -f * u[i] * u_prime_prime;
+      rhs[i] = rhs_1 + rhs_2 + rhs_3;
     }
 
     // Set up energy boundary conditions
@@ -442,52 +487,69 @@ void CWallModel1DEQ::SolveCoupledSystem(std::vector<su2double> exVals, CSurfaceE
     info = LAPACKE_dgtsv(LAPACK_COL_MAJOR,numPoints,1,lower.data(),diagonal.data(),upper.data(),rhs.data(),numPoints);
 
     T = rhs;
+//
+//    if(curFace->volElemID == 0)
+//    {
+//      std::cout << "info = " << info << std::endl;
+//      std::cout << "T = ";
+//      for(unsigned short i=0; i<numPoints; i++){
+//        std::cout << T[i] << ",  ";
+//      }
+//      std::cout << std::endl;
+//    }
 
-    if(curFace->volElemID == 0)
-    {
-      std::cout << "info = " << info << std::endl;
-      std::cout << "T = ";
-      for(unsigned short i=0; i<numPoints; i++){
-        std::cout << T[i] << ",  ";
-      }
-      std::cout << std::endl;
-    }
-
-    su2double tauWall = mu[1] * u[1] / y[1];
-    su2double heatFlux = 0.0;
-    if(isIsoThermalWall == true){
-      heatFlux = c_p*(mu[1]/Pr_lam) * (T[1] - specWallTemp) / y[1];
-    }
-
-    if(curFace->volElemID == 0)
-    {
-      std::cout << "tauWall = " << tauWall << std::endl;
-      std::cout << "heatFlux = " << heatFlux << std::endl;
-      std::cout << "---------" << std::endl;
-    }
-
-    // Given new wall shear and temperature profile, update solution
-    rho_wall = P_ex / (R * T[0]);
-    su2double u_tau = std::sqrt(tauWall/rho_wall);
-    su2double mu_wall = C_1 * std::pow(T[0],1.5) / (T[0] + S);
-    su2double nu_wall = mu_wall / rho_wall;
-    su2double l_tau = nu_wall / u_tau;
+    // Update solution with new u and T profiles
     for(unsigned short i=0; i<numPoints; i++){
-      // Set molecular viscosity based on new temp profile
-      mu[i] = C_1 * std::pow(T[i],1.5) / (T[i] + S);
-
-      // Set the density based on the new temp profile
       rho[i] = P_ex / (R*T[i]);
-      /*--- Set the turbulent viscosity ---*/
-      su2double D = std::pow(1-std::exp((-y[i]/l_tau)/A),2.0);
-      muTurb[i] = kappa * rho[i] * y[i] * u_tau * D;
-      //muTurb[i] = 0.0;
+      mu[i] = C_1 * std::pow(T[i],1.5)/(T[i] + S);
+      nu[i] = mu[i]/rho[i];
     }
 
-    if(j == 5){
+    tauWall = mu[0] * ( (u[1] - u[0])/(y[1] - y[0]) );
+    su2double u_tau = std::sqrt(tauWall/rho[0]);
+    su2double l_tau = nu[0]/u_tau;
+
+    for(unsigned short i=0; i<numPoints; i++){
+      su2double y_plus = y[i]/l_tau;
+      su2double D = std::pow((1 - std::exp(-y_plus/A)),2.0);
+      muTurb_new[i] = kappa * u_tau * rho[i] * y[i] * D;
+    }
+
+    // Calculate norms and residual
+    su2double norm_diff_mu_turb = 0.0;
+    su2double norm_mu_turb = 0.0;
+    for(unsigned short i=0; i<numPoints; i++){
+      norm_diff_mu_turb = norm_diff_mu_turb + std::abs(muTurb_new[i] - muTurb[i]);
+      norm_mu_turb = norm_mu_turb + std::abs(muTurb[i]);
+    }
+
+    su2double residual = norm_diff_mu_turb/norm_mu_turb;
+
+    muTurb = muTurb_new;
+
+    if(residual < 0.00000001){
       converged = true;
     }
+    else if(j == 50){
+      converged = true;
+    }
+
+//    su2double tauWall = mu[1] * u[1] / y[1];
+//    su2double heatFlux = 0.0;
+//    if(isIsoThermalWall == true){
+//      heatFlux = c_p*(mu[1]/Pr_lam) * (T[1] - specWallTemp) / y[1];
+//    }
+//
+//    if(curFace->volElemID == 0)
+//    {
+//      std::cout << "tauWall = " << tauWall << std::endl;
+//      std::cout << "heatFlux = " << heatFlux << std::endl;
+//      std::cout << "---------" << std::endl;
+//    }
+
     j++;
   }
+  //std::cout << "j = " << j << std::endl;
 }
 
+//void CWallModel1DEQ::SetInitialConditions(void){}
