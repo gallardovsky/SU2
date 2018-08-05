@@ -12550,7 +12550,7 @@ void CPhysicalGeometry::Check_BoundElem_Orientation(CConfig *config) {
 
 }
 
-void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
+void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
 
   unsigned long nVertex_SolidWall, ii, jj, iVertex, iPoint, pointID;
   unsigned short iMarker, iDim;
@@ -12620,7 +12620,7 @@ void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
   
 }
 
-void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
+void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
 
   /*--------------------------------------------------------------------------*/
   /*--- Step 1: Create the coordinates and connectivity of the linear      ---*/
