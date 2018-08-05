@@ -12088,10 +12088,7 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
   cgsize_t ElementDataSize = 0;
   
   /*--- Initialize counters for local/global points & elements ---*/
-  
-  SU2_MPI::Request *connSendReq = NULL, *idSendReq = NULL;
-  SU2_MPI::Request *connRecvReq = NULL, *idRecvReq = NULL;
-  unsigned long iSend, iRecv, myStart, myFinal;
+
   unsigned long iProcessor;
   unsigned long iNode, jNode;
   unsigned long nPointCGNS, nElemCGNS, nVertexCGNS;
@@ -12697,7 +12694,7 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
        in the first position and also the global ID. We have assumed
        a constant message size of a hex element + 2 extra vals. ---*/
       
-      unsigned long *connSend = NULL;
+      unsigned long *connSend = NULL, iSend = 0;
       connSend = new unsigned long[connSize*nElem_Send[size]];
       for (iSend = 0; iSend < connSize*nElem_Send[size]; iSend++)
         connSend[iSend] = 0;
@@ -12758,20 +12755,21 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
        we do not include our own rank in the communications. We will
        directly copy our own data later. ---*/
       
-      unsigned long *connRecv = NULL;
+      unsigned long *connRecv = NULL, iRecv = 0;
       connRecv = new unsigned long[connSize*nElem_Recv[size]];
       for (iRecv = 0; iRecv < connSize*nElem_Recv[size]; iRecv++)
         connRecv[iRecv] = 0;
       
       /*--- Allocate memory for the MPI requests if we need to communicate. ---*/
       
+      SU2_MPI::Request *connSendReq = NULL;
+      SU2_MPI::Request *connRecvReq = NULL;
+
       if (nSends > 0) {
         connSendReq = new SU2_MPI::Request[nSends];
-        idSendReq   = new SU2_MPI::Request[nSends];
       }
       if (nRecvs > 0) {
         connRecvReq = new SU2_MPI::Request[nRecvs];
-        idRecvReq   = new SU2_MPI::Request[nRecvs];
       }
       
       /*--- Launch the non-blocking sends and receives. ---*/
@@ -12807,7 +12805,7 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
             count++;
           }
         }
-      }
+      } else connElems[s] = NULL;
       
       /*--- Store the total number of elements I now have for
        the current section after completing the communications. ---*/
@@ -12817,10 +12815,8 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
       /*--- Free temporary memory from communications ---*/
       
       if (connSendReq != NULL) delete [] connSendReq;
-      if (idSendReq   != NULL) delete [] idSendReq;
       
       if (connRecvReq != NULL) delete [] connRecvReq;
-      if (idRecvReq   != NULL) delete [] idRecvReq;
       
       delete [] connSend;
       delete [] connRecv;
@@ -13030,7 +13026,7 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
   /*--- Loop over all the internal, local volumetric elements. ---*/
   
   for (int s = 0; s < nsections; s++) {
-    if (isVolume[s]) {
+    if (isVolume[s] && (nElems[s] > 0) {
       for (unsigned long jElem = 0; jElem < nElems[s]; jElem++) {
         
         /*--- Get the global ID for this element. ---*/
@@ -13144,7 +13140,7 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
       
       /*--- Release the memory for holding the conn in this section. ---*/
       
-      delete [] connElems[s];
+      if (connElems[s] != NULL) delete [] connElems[s];
       
     }
   }
@@ -13193,7 +13189,7 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
     iMarker = 0;
     
     for ( int s = 0; s < nsections; s++ ) {
-      if ( !isVolume[s] ) {
+      if ( !isVolume[s] && (nElems[s] > 0)) {
         
         /*--- Initialize some counter variables ---*/
         
@@ -13315,8 +13311,8 @@ void CPhysicalGeometry::Read_CGNS_Format_Parallel(CConfig *config,
         
         /*--- Release the memory for holding the conn in this section. ---*/
         
-        delete [] connElems[s];
-        
+        if (connElems[s] != NULL) delete [] connElems[s];
+
       }
     }
   }
