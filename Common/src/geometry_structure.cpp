@@ -12662,10 +12662,10 @@ void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
         /* Determine the necessary data from the corresponding standard face,
           such as the number of linear subfaces, the number of DOFs per
           linear subface and the corresponding local connectivity. */
-        const unsigned short VTK_Type      = bound[iMarker][iElem_Bound]->GetVTK_Type();
+        const unsigned short VTK_Type      = bound[iMarker][iElem]->GetVTK_Type();
         //const unsigned short nSubFaces     = standardBoundaryFacesGrid[ind].GetNSubFaces();
-        const unsigned short nDOFsPerFace  = bound[iMarker][iElem]->GetnNodes();
-        const unsigned short *connSubFaces = standardBoundaryFacesGrid[ind].GetSubFaceConn();
+        const unsigned short nDOFsPerElem  = bound[iMarker][iElem]->GetnNodes();
+        //const unsigned short *connSubFaces = standardBoundaryFacesGrid[ind].GetSubFaceConn();
 
           /* Loop over the number of subfaces and store the required data. */
         //unsigned short ii = 0;
@@ -12674,7 +12674,7 @@ void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
           VTK_TypeElem.push_back(VTK_Type);
           elemIDs.push_back(iElem);
 
-          for (unsigned short iNode = 0; iNode < bound[iMarker][iElem]->GetnNodes(); iNode++) 
+          for (unsigned short iNode = 0; iNode < nDOFsPerElem; iNode++) 
             surfaceConn.push_back(bound[iMarker][iElem]->GetNode(iNode));
         //}
       }
@@ -12693,7 +12693,7 @@ void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
       meshToSurface[i] = nVertex_SolidWall++;
 
       for(unsigned short k=0; k<nDim; ++k)
-        surfaceCoor.push_back(node[i]->GetCoord[k]);
+        surfaceCoor.push_back(node[i]->GetCoord(k));
     }
   }
 
