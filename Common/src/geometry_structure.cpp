@@ -12620,6 +12620,142 @@ void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
   
 }
 
+void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
+
+  /*--------------------------------------------------------------------------*/
+  /*--- Step 1: Create the coordinates and connectivity of the linear      ---*/
+  /*---         subelements of the local boundaries that must be taken     ---*/
+  /*---         into account in the wall distance computation.             ---*/
+  /*--------------------------------------------------------------------------*/
+
+  /* Initialize an array for the mesh points, which eventually contains the
+     mapping from the local nodes to the number used in the connectivity of the
+     local boundary faces. However, in a first pass it is an indicator whether
+     or not a mesh point is on a local wall boundary. */
+  vector<unsigned long> meshToSurface(nPoint, 0);
+
+  /* Define the vectors for the connectivity of the local linear subelements,
+     the element ID's, the element type and marker ID's. */
+  vector<unsigned long> surfaceConn;
+  vector<unsigned long> elemIDs;
+  vector<unsigned short> VTK_TypeElem;
+  vector<unsigned short> markerIDs;
+
+  /* Loop over the boundary markers. */
+
+  for(unsigned short iMarker=0; iMarker<config->GetnMarker_All(); ++iMarker) {
+
+
+    /* Check for a viscous wall. */
+    if( (config->GetMarker_All_KindBC(iMarker) == HEAT_FLUX) ||
+      (config->GetMarker_All_KindBC(iMarker) == ISOTHERMAL) ) {
+
+      /* Loop over the surface elements of this marker. */
+      //const vector<CSurfaceElementFEM> &surfElem = boundaries[iMarker].surfElem;
+      for(unsigned long iElem=0; iElem < nElem_Bound[iMarker]; iElem++) {
+
+        /* Set the flag of the mesh points on this surface to true. */
+        for (unsigned short iNode = 0; iNode < bound[iMarker][iElem]->GetnNodes(); iNode++) {
+          unsigned long iPoint = bound[iMarker][iElem]->GetNode(iNode);
+          meshToSurface[iPoint] = 1;
+        }
+        /* Determine the necessary data from the corresponding standard face,
+          such as the number of linear subfaces, the number of DOFs per
+          linear subface and the corresponding local connectivity. */
+        const unsigned short VTK_Type      = bound[iMarker][iElem_Bound]->GetVTK_Type();
+        //const unsigned short nSubFaces     = standardBoundaryFacesGrid[ind].GetNSubFaces();
+        const unsigned short nDOFsPerFace  = bound[iMarker][iElem]->GetnNodes();
+        const unsigned short *connSubFaces = standardBoundaryFacesGrid[ind].GetSubFaceConn();
+
+          /* Loop over the number of subfaces and store the required data. */
+        //unsigned short ii = 0;
+        //for(unsigned short j=0; j<nSubFaces; ++j) {
+          markerIDs.push_back(iMarker);
+          VTK_TypeElem.push_back(VTK_Type);
+          elemIDs.push_back(iElem);
+
+          for (unsigned short iNode = 0; iNode < bound[iMarker][iElem]->GetnNodes(); iNode++) 
+            surfaceConn.push_back(bound[iMarker][iElem]->GetNode(iNode));
+        //}
+      }
+    }
+  }
+
+
+  /*--- Create the coordinates of the local points on the viscous surfaces and
+        create the final version of the mapping from all volume points to the
+        points on the viscous surfaces. ---*/
+  vector<su2double> surfaceCoor;
+  unsigned long nVertex_SolidWall = 0;
+
+  for(unsigned long i=0; i<nPoint; ++i) {
+    if( meshToSurface[i] ) {
+      meshToSurface[i] = nVertex_SolidWall++;
+
+      for(unsigned short k=0; k<nDim; ++k)
+        surfaceCoor.push_back(node[i]->GetCoord[k]);
+    }
+  }
+
+  /*--- Change the surface connectivity, such that it corresponds to
+        the entries in surfaceCoor rather than in meshPoints. ---*/
+  for(unsigned long i=0; i<surfaceConn.size(); ++i)
+    surfaceConn[i] = meshToSurface[surfaceConn[i]];
+
+  /*--------------------------------------------------------------------------*/
+  /*--- Step 2: Build the ADT, which is an ADT of bounding boxes of the    ---*/
+  /*---         surface elements. A nearest point search does not give     ---*/
+  /*---         accurate results, especially not for the integration       ---*/
+  /*---         points of the elements close to a wall boundary.           ---*/
+  /*--------------------------------------------------------------------------*/
+
+  /* Build the ADT. */
+  su2_adtElemClass WallADT(nDim, surfaceCoor, surfaceConn, VTK_TypeElem,
+                           markerIDs, elemIDs, true);
+
+  /* Release the memory of the vectors used to build the ADT. To make sure
+     that all the memory is deleted, the swap function is used. */
+  vector<unsigned short>().swap(markerIDs);
+  vector<unsigned short>().swap(VTK_TypeElem);
+  vector<unsigned long>().swap(elemIDs);
+  vector<unsigned long>().swap(surfaceConn);
+  vector<su2double>().swap(surfaceCoor);
+
+  /*--------------------------------------------------------------------------*/
+  /*--- Step 3: Determine the wall distance of the integration points of   ---*/
+  /*---         locally owned volume elements.                             ---*/
+  /*--------------------------------------------------------------------------*/
+
+  /*--- Loop over all interior mesh nodes and compute the distances to each
+   of the no-slip boundary nodes. Store the minimum distance to the wall
+   for each interior mesh node. ---*/
+
+  if ( WallADT.IsEmpty() ) {
+  
+    /*--- No solid wall boundary nodes in the entire mesh.
+     Set the wall distance to zero for all nodes. ---*/
+    
+    for (iPoint=0; iPoint<GetnPoint(); ++iPoint)
+      node[iPoint]->SetWall_Distance(0.0);
+  }
+  else {
+
+    /*--- Solid wall boundary nodes are present. Compute the wall
+     distance for all nodes. ---*/
+    
+    for (iPoint=0; iPoint<GetnPoint(); ++iPoint) {
+      unsigned short markerID;
+      unsigned long  elemID;
+      int            rankID;
+      su2double      dist;
+      
+      WallADT.DetermineNearestElement(node[iPoint]->GetCoord(), dist, markerID,
+                                   elemID, rankID);
+      node[iPoint]->SetWall_Distance(dist);
+    }
+  }
+}
+
 void CPhysicalGeometry::SetPositive_ZArea(CConfig *config) {
   unsigned short iMarker, Boundary, Monitoring;
   unsigned long iVertex, iPoint;
