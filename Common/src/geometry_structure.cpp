@@ -12550,7 +12550,7 @@ void CPhysicalGeometry::Check_BoundElem_Orientation(CConfig *config) {
 
 }
 
-void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
+void CPhysicalGeometry::ComputeWall_DistanceOld(CConfig *config) {
 
   unsigned long nVertex_SolidWall, ii, jj, iVertex, iPoint, pointID;
   unsigned short iMarker, iDim;
@@ -12651,7 +12651,6 @@ void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
       (config->GetMarker_All_KindBC(iMarker) == ISOTHERMAL) ) {
 
       /* Loop over the surface elements of this marker. */
-      //const vector<CSurfaceElementFEM> &surfElem = boundaries[iMarker].surfElem;
       for(unsigned long iElem=0; iElem < nElem_Bound[iMarker]; iElem++) {
 
         /* Set the flag of the mesh points on this surface to true. */
@@ -12663,21 +12662,17 @@ void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
           such as the number of linear subfaces, the number of DOFs per
           linear subface and the corresponding local connectivity. */
         const unsigned short VTK_Type      = bound[iMarker][iElem]->GetVTK_Type();
-        //const unsigned short nSubFaces     = standardBoundaryFacesGrid[ind].GetNSubFaces();
         const unsigned short nDOFsPerElem  = bound[iMarker][iElem]->GetnNodes();
-        //const unsigned short *connSubFaces = standardBoundaryFacesGrid[ind].GetSubFaceConn();
 
-          /* Loop over the number of subfaces and store the required data. */
-        //unsigned short ii = 0;
-        //for(unsigned short j=0; j<nSubFaces; ++j) {
-          markerIDs.push_back(iMarker);
-          VTK_TypeElem.push_back(VTK_Type);
-          elemIDs.push_back(iElem);
+          /* Loop over the nodes of element and store the required data. */
 
-          for (unsigned short iNode = 0; iNode < nDOFsPerElem; iNode++) 
-            surfaceConn.push_back(bound[iMarker][iElem]->GetNode(iNode));
-        //}
-      }
+        markerIDs.push_back(iMarker);
+        VTK_TypeElem.push_back(VTK_Type);
+        elemIDs.push_back(iElem);
+
+        for (unsigned short iNode = 0; iNode < nDOFsPerElem; iNode++) 
+          surfaceConn.push_back(bound[iMarker][iElem]->GetNode(iNode));
+        }
     }
   }
 
@@ -12722,13 +12717,10 @@ void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
   vector<su2double>().swap(surfaceCoor);
 
   /*--------------------------------------------------------------------------*/
-  /*--- Step 3: Determine the wall distance of the integration points of   ---*/
-  /*---         locally owned volume elements.                             ---*/
+  /*--- Step 3: Loop over all interior mesh nodes and compute minimum      ---*/
+  /*---         distance to a solid wall element                           ---*/
   /*--------------------------------------------------------------------------*/
 
-  /*--- Loop over all interior mesh nodes and compute the distances to each
-   of the no-slip boundary nodes. Store the minimum distance to the wall
-   for each interior mesh node. ---*/
 
   if ( WallADT.IsEmpty() ) {
   

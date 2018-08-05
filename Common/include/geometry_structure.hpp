@@ -411,7 +411,7 @@ public:
 	 * \brief A virtual member.
 	 * \param[in] config - Definition of the particular problem.		 
 	 */
-	virtual void ComputeWall_Distance2(CConfig *config);
+	virtual void ComputeWall_DistanceOld(CConfig *config);
 
 	/*! 
 	 * \brief A virtual member.
@@ -1626,7 +1626,7 @@ public:
 	 * \brief Computes the distance to the nearest no-slip wall for each grid node.
 	 * \param[in] config - Definition of the particular problem.
 	 */
-	void ComputeWall_Distance2(CConfig *config);
+	void ComputeWall_DistanceOld(CConfig *config);
 
 	/*! 
 	 * \brief Compute surface area (positive z-direction) for force coefficient non-dimensionalization.
