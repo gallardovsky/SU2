@@ -12735,7 +12735,7 @@ void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
     /*--- No solid wall boundary nodes in the entire mesh.
      Set the wall distance to zero for all nodes. ---*/
     
-    for (iPoint=0; iPoint<GetnPoint(); ++iPoint)
+    for (unsigned long iPoint=0; iPoint<GetnPoint(); ++iPoint)
       node[iPoint]->SetWall_Distance(0.0);
   }
   else {
@@ -12743,7 +12743,7 @@ void CPhysicalGeometry::ComputeWall_Distance2(CConfig *config) {
     /*--- Solid wall boundary nodes are present. Compute the wall
      distance for all nodes. ---*/
     
-    for (iPoint=0; iPoint<GetnPoint(); ++iPoint) {
+    for (unsigned long iPoint=0; iPoint<GetnPoint(); ++iPoint) {
       unsigned short markerID;
       unsigned long  elemID;
       int            rankID;
