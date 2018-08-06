@@ -12640,6 +12640,8 @@ void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
   vector<unsigned long> elemIDs;
   vector<unsigned short> VTK_TypeElem;
   vector<unsigned short> markerIDs;
+  vector<su2double> surfaceCoor;
+
 
   /* Loop over the boundary markers. */
 
@@ -12653,49 +12655,47 @@ void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
       /* Loop over the surface elements of this marker. */
       for(unsigned long iElem=0; iElem < nElem_Bound[iMarker]; iElem++) {
 
-        /* Set the flag of the mesh points on this surface to true. */
-        for (unsigned short iNode = 0; iNode < bound[iMarker][iElem]->GetnNodes(); iNode++) {
-          unsigned long iPoint = bound[iMarker][iElem]->GetNode(iNode);
-          meshToSurface[iPoint] = 1;
-        }
         /* Determine the necessary data from the corresponding standard face,
-          such as the number of linear subfaces, the number of DOFs per
-          linear subface and the corresponding local connectivity. */
+          such as type of element, and number of nodes */
         const unsigned short VTK_Type      = bound[iMarker][iElem]->GetVTK_Type();
         const unsigned short nDOFsPerElem  = bound[iMarker][iElem]->GetnNodes();
-
-          /* Loop over the nodes of element and store the required data. */
-
+        
         markerIDs.push_back(iMarker);
         VTK_TypeElem.push_back(VTK_Type);
         elemIDs.push_back(iElem);
 
-        for (unsigned short iNode = 0; iNode < nDOFsPerElem; iNode++) 
-          surfaceConn.push_back(bound[iMarker][iElem]->GetNode(iNode));
+        /* Loop over nodes of the element and establish surface connectivity */
+        for (unsigned short iNode = 0; iNode < bound[iMarker][iElem]->GetnNodes(); iNode++) {
+          unsigned long iPoint = bound[iMarker][iElem]->GetNode(iNode);
+          meshToSurface[iPoint] = 1;
+          surfaceConn.push_back(iPoint);
+          for(unsigned short k=0; k<nDim; ++k)
+            surfaceCoor.push_back(node[i]->GetCoord(k));
         }
+
     }
   }
 
 
-  /*--- Create the coordinates of the local points on the viscous surfaces and
-        create the final version of the mapping from all volume points to the
-        points on the viscous surfaces. ---*/
-  vector<su2double> surfaceCoor;
-  unsigned long nVertex_SolidWall = 0;
+  // /*--- Create the coordinates of the local points on the viscous surfaces and
+  //       create the final version of the mapping from all volume points to the
+  //       points on the viscous surfaces. ---*/
+  // vector<su2double> surfaceCoor;
+  // unsigned long nVertex_SolidWall = 0;
 
-  for(unsigned long i=0; i<nPoint; ++i) {
-    if( meshToSurface[i] ) {
-      meshToSurface[i] = nVertex_SolidWall++;
+  // for(unsigned long i=0; i<nPoint; ++i) {
+  //   if( meshToSurface[i] ) {
+  //     meshToSurface[i] = nVertex_SolidWall++;
 
-      for(unsigned short k=0; k<nDim; ++k)
-        surfaceCoor.push_back(node[i]->GetCoord(k));
-    }
-  }
+  //     for(unsigned short k=0; k<nDim; ++k)
+  //       surfaceCoor.push_back(node[i]->GetCoord(k));
+  //   }
+  // }
 
-  /*--- Change the surface connectivity, such that it corresponds to
-        the entries in surfaceCoor rather than in meshPoints. ---*/
-  for(unsigned long i=0; i<surfaceConn.size(); ++i)
-    surfaceConn[i] = meshToSurface[surfaceConn[i]];
+  // /*--- Change the surface connectivity, such that it corresponds to
+  //       the entries in surfaceCoor rather than in meshPoints. ---*/
+  // for(unsigned long i=0; i<surfaceConn.size(); ++i)
+  //   surfaceConn[i] = meshToSurface[surfaceConn[i]];
 
   /*--------------------------------------------------------------------------*/
   /*--- Step 2: Build the ADT, which is an ADT of bounding boxes of the    ---*/
