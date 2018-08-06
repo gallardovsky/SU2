@@ -1066,6 +1066,10 @@ void su2_adtElemClass::Dist2ToElement(const unsigned long elemID,
            r and s are used as initial guess. */
         projectionInside = Dist2ToQuadrilateral(i0, i1, i2, i3, coor, r, s,
                                                 dist2Elem);
+        if ( !projectionInside && dist2Elem = -1.0 ){
+          projectionInside = true;
+          Dist2ToTriangle(i0, i1, i3, coor, dist2Elem, r, s);
+        }
       }
       else if( Dist2ToTriangle(i2, i3, i1, coor, dist2Elem, r, s) ) {
 
@@ -1078,6 +1082,10 @@ void su2_adtElemClass::Dist2ToElement(const unsigned long elemID,
 
         projectionInside = Dist2ToQuadrilateral(i0, i1, i2, i3, coor, r, s,
                                                 dist2Elem);
+        if ( !projectionInside && dist2Elem = -1.0 ){
+          projectionInside = true;
+          Dist2ToTriangle(i2, i3, i1, coor, dist2Elem, r, s);
+        }
       }
 
       if( !projectionInside ) {
@@ -2518,8 +2526,11 @@ bool su2_adtElemClass::Dist2ToQuadrilateral(const unsigned long i0,
   }
 
   /* Terminate if the Newton algorithm did not converge. */
-  if(itCount == maxIt)
-    SU2_MPI::Error("Newton did not converge", CURRENT_FUNCTION);
+  if(itCount == maxIt){
+    dist2Quad = -1.0;
+    return false;
+  }
+    //SU2_MPI::Error("Newton did not converge", CURRENT_FUNCTION);
 
   /*--- Check if the projection is inside the quadrilateral. ---*/
   if((r >= paramLowerBound) && (s >= paramLowerBound) &&
