@@ -12672,7 +12672,7 @@ void CPhysicalGeometry::ComputeWall_Distance(CConfig *config) {
           for(unsigned short k=0; k<nDim; ++k)
             surfaceCoor.push_back(node[i]->GetCoord(k));
         }
-
+      }
     }
   }
 
