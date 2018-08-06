@@ -1066,7 +1066,7 @@ void su2_adtElemClass::Dist2ToElement(const unsigned long elemID,
            r and s are used as initial guess. */
         projectionInside = Dist2ToQuadrilateral(i0, i1, i2, i3, coor, r, s,
                                                 dist2Elem);
-        if ( !projectionInside && dist2Elem = -1.0 ){
+        if ( !projectionInside && dist2Elem == -1.0 ){
           projectionInside = true;
           Dist2ToTriangle(i0, i1, i3, coor, dist2Elem, r, s);
         }
@@ -1082,7 +1082,7 @@ void su2_adtElemClass::Dist2ToElement(const unsigned long elemID,
 
         projectionInside = Dist2ToQuadrilateral(i0, i1, i2, i3, coor, r, s,
                                                 dist2Elem);
-        if ( !projectionInside && dist2Elem = -1.0 ){
+        if ( !projectionInside && dist2Elem == -1.0 ){
           projectionInside = true;
           Dist2ToTriangle(i2, i3, i1, coor, dist2Elem, r, s);
         }
